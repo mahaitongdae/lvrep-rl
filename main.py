@@ -15,8 +15,8 @@ if __name__ == "__main__":
 	
   parser = argparse.ArgumentParser()
   parser.add_argument("--dir", default=0, type=int)                     
-  parser.add_argument("--alg", default="sac")                     # Alg name (sac, vlsac)
-  parser.add_argument("--env", default="HalfCheetah-v3")          # Environment name
+  parser.add_argument("--alg", default="vlsac")                     # Alg name (sac, vlsac)
+  parser.add_argument("--env", default="Pendulum-v1")          # Environment name
   parser.add_argument("--seed", default=0, type=int)              # Sets Gym, PyTorch and Numpy seeds
   parser.add_argument("--start_timesteps", default=25e3, type=float)# Time steps initial random policy is used
   parser.add_argument("--eval_freq", default=5e3, type=int)       # How often (time steps) we evaluate
@@ -66,7 +66,7 @@ if __name__ == "__main__":
   elif args.alg == 'vlsac':
     kwargs['extra_feature_steps'] = args.extra_feature_steps
     kwargs['feature_dim'] = args.feature_dim
-    agent = vlsac_agent.VLSACAgent(**kwargs)
+    agent = vlsac_agent.SPEDERAgent(**kwargs)
   
   replay_buffer = buffer.ReplayBuffer(state_dim, action_dim)
 

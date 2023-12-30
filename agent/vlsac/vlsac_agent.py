@@ -5,10 +5,11 @@ import torch.nn.functional as F
 from torch.distributions import Normal 
 import os
 
-from utils.util import unpack_batch, RunningMeanStd
+from utils.util import unpack_batch # , # RunningMeanStd
 from networks.policy import GaussianPolicy
 from networks.vae import Encoder, Decoder, GaussianFeature
 from agent.sac.sac_agent import SACAgent
+from networks.features import MLPFeatureMu, MLPFeaturePhi
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,22 +42,22 @@ class Critic(nn.Module):
 		self.l6 = nn.Linear(hidden_dim, 1)
 
 
-	def forward(self, mean, log_std):
+	def forward(self, x):
 		"""
 		"""
-		std = log_std.exp()
-		batch_size, d = mean.shape 
-	
-		x = mean[:, None, :] + std[:, None, :] * self.noise
-		x = x.reshape(-1, d)
+		# std = log_std.exp()
+		# batch_size, d = mean.shape
+		#
+		# x = mean[:, None, :] + std[:, None, :] * self.noise
+		# x = x.reshape(-1, d)
 
 		q1 = F.elu(self.l1(x)) #F.relu(self.l1(x))
-		q1 = q1.reshape([batch_size, self.num_noise, -1]).mean(dim=1)
+		# q1 = q1.reshape([batch_size, self.num_noise, -1]).mean(dim=1)
 		q1 = F.elu(self.l2(q1)) #F.relu(self.l2(q1))
 		q1 = self.l3(q1)
 
 		q2 = F.elu(self.l4(x)) #F.relu(self.l4(x))
-		q2 = q2.reshape([batch_size, self.num_noise, -1]).mean(dim=1)
+		# q2 = q2.reshape([batch_size, self.num_noise, -1]).mean(dim=1)
 		q2 = F.elu(self.l5(q2)) #F.relu(self.l5(q2))
 		q2 = self.l3(q2)
 
@@ -64,7 +65,7 @@ class Critic(nn.Module):
 
 
 
-class VLSACAgent(SACAgent):
+class SPEDERAgent(SACAgent):
 	"""
 	SAC with VAE learned latent features
 	"""
@@ -110,11 +111,15 @@ class VLSACAgent(SACAgent):
 				feature_dim=feature_dim).to(device)
 		self.f = GaussianFeature(state_dim=state_dim, 
 				action_dim=action_dim, feature_dim=feature_dim).to(device)
+
+		self.feature_phi = MLPFeaturePhi(state_dim=state_dim, action_dim=action_dim, hidden_dim=hidden_dim).to(device)
+		self.feature_mu = MLPFeatureMu(state_dim=state_dim, hidden_dim=hidden_dim).to(device)
 		
 		if use_feature_target:
-			self.f_target = copy.deepcopy(self.f)
+			self.feature_phi_target = copy.deepcopy(self.feature_phi)
+			self.feature_mu_target = self.feature_mu
 		self.feature_optimizer = torch.optim.Adam(
-			list(self.encoder.parameters()) + list(self.decoder.parameters()) + list(self.f.parameters()),
+			list(self.feature_phi.parameters()) + list(self.feature_mu.parameters()),
 			lr=lr)
 
 		self.critic = Critic(feature_dim=feature_dim, hidden_dim=hidden_dim).to(device)
@@ -131,34 +136,55 @@ class VLSACAgent(SACAgent):
 
 		log sigma_2 - log sigma_1 + sigma_1^2 (mu_1 - mu_2)^2 / 2 sigma_2^2 - 0.5
 		"""
-		# ML loss
-		z = self.encoder.sample(
-			batch.state, batch.action, batch.next_state)
-		x, r = self.decoder(z)
-		s_loss = 0.5 * F.mse_loss(x, batch.next_state)
-		r_loss = 0.5 * F.mse_loss(r, batch.reward)
-		ml_loss = r_loss + s_loss
+		# # ML loss
+		# z = self.encoder.sample(
+		# 	batch.state, batch.action, batch.next_state)
+		# x, r = self.decoder(z)
+		# s_loss = 0.5 * F.mse_loss(x, batch.next_state)
+		# r_loss = 0.5 * F.mse_loss(r, batch.reward)
+		# ml_loss = r_loss + s_loss
+		#
+		# # KL loss
+		# mean1, log_std1 = self.encoder(
+		# 	batch.state, batch.action, batch.next_state)
+		# mean2, log_std2 = self.f(batch.state, batch.action)
+		# var1 = (2 * log_std1).exp()
+		# var2 = (2 * log_std2).exp()
+		# kl_loss = log_std2 - log_std1 + 0.5 * (var1 + (mean1-mean2)**2) / var2 - 0.5
+		#
+		# loss = (ml_loss + kl_loss).mean()
 
-		# KL loss
-		mean1, log_std1 = self.encoder(
-			batch.state, batch.action, batch.next_state)
-		mean2, log_std2 = self.f(batch.state, batch.action)
-		var1 = (2 * log_std1).exp()
-		var2 = (2 * log_std2).exp()
-		kl_loss = log_std2 - log_std1 + 0.5 * (var1 + (mean1-mean2)**2) / var2 - 0.5
-		
-		loss = (ml_loss + kl_loss).mean()
+		# loss
+		phi = self.feature_phi(batch.state, batch.action)
+		mu = self.feature_mu(batch.next_state)
+		model_learning_loss1 = - torch.sum(phi * mu, dim=-1)
+		model_learning_loss2 = 1 / (2 * self.feature_dim) * torch.sum(phi * phi, dim=-1)
+		model_learning_loss = model_learning_loss1 + model_learning_loss2
+		model_learning_loss = model_learning_loss.mean()
+
+		# penalty
+		phi_vec = phi[:, :, None] # shape: [batch, phidim, 1]
+		phi_vec_t = phi[:, None, :] # shape [batch, 1, phi_dim]
+		identity = torch.einsum('bij,bjk->bik', phi_vec, phi_vec_t)
+		# batch matrix multiplication, more can see https://pytorch.org/docs/stable/generated/torch.einsum.html#torch.einsum
+		identity = torch.mean(identity, dim=0)
+		penalty_factor = torch.tensor(1e10, device=device) # TODO: tune it maybe
+		penalty_loss = penalty_factor * F.mse_loss(identity, torch.eye(self.feature_dim).to(device) / self.feature_dim)
+
+		loss = model_learning_loss + penalty_loss
 
 		self.feature_optimizer.zero_grad()
 		loss.backward()
 		self.feature_optimizer.step()
 
 		return {
-			'vae_loss': loss.item(),
-			'ml_loss': ml_loss.mean().item(),
-			'kl_loss': kl_loss.mean().item(),
-			's_loss': s_loss.mean().item(),
-			'r_loss': r_loss.mean().item()
+			'feature_loss': loss.item(),
+			'model_learning_loss1': model_learning_loss1.mean().item(),
+			'model_learning_loss2': model_learning_loss2.mean().item(),
+			'model_learning_loss': model_learning_loss.item(),
+			'penalty_loss': penalty_loss.item(),
+			# 's_loss': s_loss.mean().item(),
+			# 'r_loss': r_loss.mean().item()
 		}
 
 
@@ -171,10 +197,10 @@ class VLSACAgent(SACAgent):
 		log_prob = dist.log_prob(action).sum(-1, keepdim=True)
 
 		if self.use_feature_target:
-			mean, log_std = self.f_target(batch.state, action)
+			phi = self.feature_phi_target(batch.state, action)
 		else:
-			mean, log_std = self.f(batch.state, action)
-		q1, q2 = self.critic(mean, log_std)
+			phi = self.feature_phi(batch.state, action)
+		q1, q2 = self.critic(phi)
 		q = torch.min(q1, q2)
 
 		actor_loss = ((self.alpha) * log_prob - q).mean()
@@ -210,17 +236,17 @@ class VLSACAgent(SACAgent):
 			next_action_log_pi = dist.log_prob(next_action).sum(-1, keepdim=True)
 
 			if self.use_feature_target:
-				mean, log_std = self.f_target(state, action)
-				next_mean, next_log_std = self.f_target(next_state, next_action)
+				phi = self.feature_phi_target(state, action)
+				next_phi = self.feature_phi_target(next_state, next_action)
 			else:
-				mean, log_std = self.f(state, action)
-				next_mean, next_log_std = self.f(next_state, next_action)
+				phi = self.feature_phi(state, action)
+				next_phi = self.feature_phi(next_state, next_action)
 
-			next_q1, next_q2 = self.critic_target(next_mean, next_log_std)
+			next_q1, next_q2 = self.critic_target(next_phi)
 			next_q = torch.min(next_q1, next_q2) - self.alpha * next_action_log_pi
 			target_q = reward + (1. - done) * self.discount * next_q 
 			
-		q1, q2 = self.critic(mean, log_std)
+		q1, q2 = self.critic(phi)
 		q1_loss = F.mse_loss(target_q, q1)
 		q2_loss = F.mse_loss(target_q, q2)
 		q_loss = q1_loss + q2_loss
@@ -238,7 +264,9 @@ class VLSACAgent(SACAgent):
 
 
 	def update_feature_target(self):
-		for param, target_param in zip(self.f.parameters(), self.f_target.parameters()):
+		for param, target_param in zip(self.feature_phi.parameters(), self.feature_phi_target.parameters()):
+			target_param.data.copy_(self.feature_tau * param.data + (1 - self.feature_tau) * target_param.data)
+		for param, target_param in zip(self.feature_mu.parameters(), self.feature_mu_target.parameters()):
 			target_param.data.copy_(self.feature_tau * param.data + (1 - self.feature_tau) * target_param.data)
 	
 
@@ -271,6 +299,7 @@ class VLSACAgent(SACAgent):
 			**critic_info, 
 			**actor_info,
 		}
+
 
 
 	
