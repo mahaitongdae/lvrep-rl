@@ -63,6 +63,33 @@ class Critic(nn.Module):
 
 		return q1, q2
 
+class LineaCritic(nn.Module):
+	"""
+	Critic with linear
+	"""
+	def __init__(
+		self,
+		feature_dim,
+		):
+
+		super().__init__()
+
+		# Q1
+		self.l1 = nn.Linear(feature_dim, 1)
+
+		# Q2
+		self.l2 = nn.Linear(feature_dim, 1) 
+
+
+	def forward(self, x):
+		"""
+		"""
+
+		q1 = self.l1(x)
+		q2 = self.l2(x)
+
+		return q1, q2
+
 
 
 class SPEDERAgent(SACAgent):
@@ -85,6 +112,7 @@ class SPEDERAgent(SACAgent):
 			feature_dim=256, # latent feature dim
 			use_feature_target=True, 
 			extra_feature_steps=1,
+			linear_critic=False
 			):
 
 		super().__init__(
@@ -105,12 +133,12 @@ class SPEDERAgent(SACAgent):
 		self.use_feature_target = use_feature_target
 		self.extra_feature_steps = extra_feature_steps
 
-		self.encoder = Encoder(state_dim=state_dim, 
-				action_dim=action_dim, feature_dim=feature_dim).to(device)
-		self.decoder = Decoder(state_dim=state_dim,
-				feature_dim=feature_dim).to(device)
-		self.f = GaussianFeature(state_dim=state_dim, 
-				action_dim=action_dim, feature_dim=feature_dim).to(device)
+		# self.encoder = Encoder(state_dim=state_dim, 
+		# 		action_dim=action_dim, feature_dim=feature_dim).to(device)
+		# self.decoder = Decoder(state_dim=state_dim,
+		# 		feature_dim=feature_dim).to(device)
+		# self.f = GaussianFeature(state_dim=state_dim, 
+		# 		action_dim=action_dim, feature_dim=feature_dim).to(device)
 
 		self.feature_phi = MLPFeaturePhi(state_dim=state_dim, action_dim=action_dim, hidden_dim=hidden_dim).to(device)
 		self.feature_mu = MLPFeatureMu(state_dim=state_dim, hidden_dim=hidden_dim).to(device)
@@ -122,7 +150,10 @@ class SPEDERAgent(SACAgent):
 			list(self.feature_phi.parameters()) + list(self.feature_mu.parameters()),
 			lr=lr)
 
-		self.critic = Critic(feature_dim=feature_dim, hidden_dim=hidden_dim).to(device)
+		if not linear_critic:
+			self.critic = Critic(feature_dim=feature_dim, hidden_dim=hidden_dim).to(device)
+		else:
+			self.critic = LineaCritic(feature_dim=feature_dim).to(device)
 		self.critic_target = copy.deepcopy(self.critic)
 		self.critic_optimizer = torch.optim.Adam(
 			self.critic.parameters(), lr=lr, betas=[0.9, 0.999])
@@ -157,21 +188,21 @@ class SPEDERAgent(SACAgent):
 		# loss
 		phi = self.feature_phi(batch.state, batch.action)
 		mu = self.feature_mu(batch.next_state)
-		model_learning_loss1 = - torch.sum(phi * mu, dim=-1)
-		model_learning_loss2 = 1 / (2 * self.feature_dim) * torch.sum(phi * phi, dim=-1)
-		model_learning_loss = model_learning_loss1 + model_learning_loss2
+		model_learning_loss1 = - torch.log(torch.sum(phi * mu, dim=-1))
+		# model_learning_loss2 = 1 / (2 * self.feature_dim) * torch.sum(phi * phi, dim=-1)
+		model_learning_loss = model_learning_loss1 # + model_learning_loss2
 		model_learning_loss = model_learning_loss.mean()
 
 		# penalty
-		phi_vec = phi[:, :, None] # shape: [batch, phidim, 1]
-		phi_vec_t = phi[:, None, :] # shape [batch, 1, phi_dim]
-		identity = torch.einsum('bij,bjk->bik', phi_vec, phi_vec_t)
-		# batch matrix multiplication, more can see https://pytorch.org/docs/stable/generated/torch.einsum.html#torch.einsum
-		identity = torch.mean(identity, dim=0)
-		penalty_factor = torch.tensor(1e10, device=device) # TODO: tune it maybe
-		penalty_loss = penalty_factor * F.mse_loss(identity, torch.eye(self.feature_dim).to(device) / self.feature_dim)
+		# phi_vec = phi[:, :, None] # shape: [batch, phidim, 1]
+		# phi_vec_t = phi[:, None, :] # shape [batch, 1, phi_dim]
+		# identity = torch.einsum('bij,bjk->bik', phi_vec, phi_vec_t)
+		# # batch matrix multiplication, more can see https://pytorch.org/docs/stable/generated/torch.einsum.html#torch.einsum
+		# identity = torch.mean(identity, dim=0)
+		# penalty_factor = torch.tensor(1e10, device=device)
+		# penalty_loss = penalty_factor * F.mse_loss(identity, torch.eye(self.feature_dim).to(device) / self.feature_dim)
 
-		loss = model_learning_loss + penalty_loss
+		loss = model_learning_loss #  + penalty_loss
 
 		self.feature_optimizer.zero_grad()
 		loss.backward()
@@ -180,9 +211,9 @@ class SPEDERAgent(SACAgent):
 		return {
 			'feature_loss': loss.item(),
 			'model_learning_loss1': model_learning_loss1.mean().item(),
-			'model_learning_loss2': model_learning_loss2.mean().item(),
+			# 'model_learning_loss2': model_learning_loss2.mean().item(),
 			'model_learning_loss': model_learning_loss.item(),
-			'penalty_loss': penalty_loss.item(),
+			# 'penalty_loss': penalty_loss.item(),
 			# 's_loss': s_loss.mean().item(),
 			# 'r_loss': r_loss.mean().item()
 		}
