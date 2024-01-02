@@ -3,7 +3,13 @@ from torch import nn
 from torch.nn import functional as F
 import torch.distributions as td 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import socket
+
+device_name = socket.gethostname()
+if device_name.startswith('naliseas'):
+	device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+else:
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Encoder(nn.Module):

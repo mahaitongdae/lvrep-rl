@@ -3,7 +3,13 @@ from torch import nn
 from torch.nn import functional as F
 import torch.distributions as td
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import socket
+
+device_name = socket.gethostname()
+if device_name.startswith('naliseas'):
+	device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+else:
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class MLPFeaturePhi(nn.Module):
@@ -33,9 +39,9 @@ class MLPFeaturePhi(nn.Module):
         get logits
         """
         x = torch.cat([state, action], axis=-1)
-        z = F.relu(self.l1(x))
-        z = F.relu(self.l2(z))
-        logit = F.sigmoid(self.l3(z))
+        z = F.elu(self.l1(x))
+        z = F.elu(self.l2(z))
+        logit = F.relu(self.l3(z))
         return logit
 
 
@@ -65,7 +71,7 @@ class MLPFeatureMu(nn.Module):
         get logits
         """
         # x = torch.cat([state, action], axis=-1)
-        z = F.relu(self.l1(state))
-        z = F.relu(self.l2(z))
-        logit = F.sigmoid(self.l3(z))
+        z = F.elu(self.l1(state))
+        z = F.elu(self.l2(z))
+        logit = F.relu(self.l3(z))
         return logit

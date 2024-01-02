@@ -3,18 +3,19 @@ import torch
 import gym
 import argparse
 import os
+import datetime
 
 from tensorboardX import SummaryWriter
 
 from utils import util, buffer
 from agent.sac import sac_agent
-from agent.vlsac import vlsac_agent
+from agent.feature_sac import feature_sac_agent
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default=0, type=int)
-    parser.add_argument("--alg", default="vlsac")  # Alg name (sac, vlsac)
+    parser.add_argument("--dir", default='reproduce_speder', type=str)
+    parser.add_argument("--alg", default="speder")  # Alg name (sac, feature_sac)
     parser.add_argument("--env", default="Pendulum-v1")  # Environment name
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--start_timesteps", default=25e3, type=float)  # Time steps initial random policy is used
@@ -38,6 +39,7 @@ if __name__ == "__main__":
     max_length = env._max_episode_steps
 
     # setup log
+    # dir_name =
     log_path = f'log/{args.env}/{args.alg}/{args.dir}/{args.seed}'
     summary_writer = SummaryWriter(log_path)
 
@@ -62,10 +64,14 @@ if __name__ == "__main__":
     # Initialize policy
     if args.alg == "sac":
         agent = sac_agent.SACAgent(**kwargs)
-    elif args.alg == 'vlsac':
+    elif args.alg == 'mle':
         kwargs['extra_feature_steps'] = args.extra_feature_steps
         kwargs['feature_dim'] = args.feature_dim
-        agent = vlsac_agent.SPEDERAgent(**kwargs)
+        agent = feature_sac_agent.MLEFeatureAgent(**kwargs)
+    elif args.alg == 'speder':
+        kwargs['extra_feature_steps'] = args.extra_feature_steps
+        kwargs['feature_dim'] = args.feature_dim
+        agent = feature_sac_agent.SPEDERAgent(**kwargs)
 
     replay_buffer = buffer.ReplayBuffer(state_dim, action_dim)
 

@@ -8,14 +8,14 @@ from tensorboardX import SummaryWriter
 
 from utils import util, buffer
 from agent.sac import sac_agent
-from agent.vlsac import vlsac_agent
+from agent.feature_sac import feature_sac_agent
 from networks.features import MLPFeatureMu, MLPFeaturePhi
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", default=0, type=int)
-    parser.add_argument("--alg", default="vlsac")  # Alg name (sac, vlsac)
+    parser.add_argument("--alg", default="feature_sac")  # Alg name (sac, feature_sac)
     parser.add_argument("--env", default="Pendulum-v1")  # Environment name
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--start_timesteps", default=25e3, type=float)  # Time steps initial random policy is used
@@ -63,10 +63,10 @@ if __name__ == "__main__":
     # Initialize policy
     if args.alg == "sac":
         agent = sac_agent.SACAgent(**kwargs)
-    elif args.alg == 'vlsac':
+    elif args.alg == 'feature_sac':
         kwargs['extra_feature_steps'] = args.extra_feature_steps
         kwargs['feature_dim'] = args.feature_dim
-        agent = vlsac_agent.SPEDERAgent(**kwargs)
+        agent = vlsac_agent.MLEFeatureAgent(**kwargs)
 
     log_path = '/home/mht/PycharmProjects/lvrep-rl/log/Pendulum-v1/vlsac/0/0'
     feature_phi = MLPFeaturePhi(state_dim=state_dim,

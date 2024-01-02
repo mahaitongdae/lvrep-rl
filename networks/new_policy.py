@@ -10,7 +10,13 @@ LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
 epsilon = 1e-6
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import socket
+
+device_name = socket.gethostname()
+if device_name.startswith('naliseas'):
+	device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+else:
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Distribution(TorchDistribution):
