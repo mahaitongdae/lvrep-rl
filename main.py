@@ -14,7 +14,7 @@ from agent.feature_sac import feature_sac_agent
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default='reproduce_speder', type=str)
+    parser.add_argument("--dir", default='speder_change_penalty', type=str)
     parser.add_argument("--alg", default="speder")  # Alg name (sac, feature_sac)
     parser.add_argument("--env", default="Pendulum-v1")  # Environment name
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
