@@ -1,7 +1,7 @@
 import collections
 import numpy as np
 import torch
-
+import socket
 
 
 Batch = collections.namedtuple(
@@ -22,8 +22,12 @@ class ReplayBuffer(object):
 		self.reward = np.zeros((max_size, 1))
 		self.done = np.zeros((max_size, 1))
 
-		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+		device_name = socket.gethostname()
+		if device_name.startswith('naliseas'):
+			self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+		else:
+			self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+		
 
 	def add(self, state, action, next_state, reward, done):
 		self.state[self.ptr] = state
