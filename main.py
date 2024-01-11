@@ -14,10 +14,10 @@ from agent.feature_sac import feature_sac_agent
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default='speder_change_penalty', type=str)
+    parser.add_argument("--dir", default='reproduce_speder', type=str)
     parser.add_argument("--alg", default="speder")  # Alg name (sac, feature_sac)
     parser.add_argument("--env", default="Pendulum-v1")  # Environment name
-    parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
+    parser.add_argument("--seed", default=1, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--start_timesteps", default=25e3, type=float)  # Time steps initial random policy is used
     parser.add_argument("--eval_freq", default=5e3, type=int)  # How often (time steps) we evaluate
     parser.add_argument("--max_timesteps", default=5e5, type=float)  # Max time steps to run environment
