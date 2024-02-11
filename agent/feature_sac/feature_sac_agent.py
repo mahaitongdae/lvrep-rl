@@ -379,3 +379,97 @@ class SPEDERAgent(MLEFeatureAgent):
             # 's_loss': s_loss.mean().item(),
             # 'r_loss': r_loss.mean().item()
         }
+
+
+class TransferAgent(SPEDERAgent):
+
+    def __init__(self,
+                 log_path,
+                 state_dim,
+                 action_dim,
+                 action_space,
+                 lr,
+                 linear_critic = False,
+                 aug_feature_dim = 128):
+        super(TransferAgent, self).__init__(
+            state_dim,
+            action_dim,
+            action_space,
+            lr=lr,
+            discount=0.99,
+            target_update_period=2,
+            tau=0.005,
+            alpha=0.1,
+            auto_entropy_tuning=True,
+            hidden_dim=256,
+            feature_tau=0.001,
+            feature_dim=256,  # latent feature dim
+            use_feature_target=True,
+            extra_feature_steps=1,
+            linear_critic=linear_critic)
+        # load nets trained in simulators
+        self.feature_phi.load_state_dict(
+            torch.load(os.path.join(log_path, 'best_feature_phi.pth'), map_location={'cuda:1': 'cuda:0'}))
+        # map location is for trained on workstations and load on locals.
+        self.feature_mu.load_state_dict(
+            torch.load(os.path.join(log_path, 'best_feature_mu.pth'), map_location={'cuda:1': 'cuda:0'}))
+        self.critic.load_state_dict(
+            torch.load(os.path.join(log_path, 'best_critic.pth'), map_location={'cuda:1': 'cuda:0'}))
+        self.actor.load_state_dict(
+            torch.load(os.path.join(log_path, 'best_actor.pth'), map_location={'cuda:1': 'cuda:0'}))
+
+        self.augmented_feature_phi = MLPFeaturePhi(state_dim, action_dim, feature_dim=128)
+        self.augmented_feature_mu = MLPFeatureMu(state_dim, action_dim, feature_dim=128)
+
+        if self.use_feature_target:
+            self.augmented_feature_phi_target = copy.deepcopy(self.augmented_feature_phi)
+            self.augmented_feature_mu_target = copy.deepcopy(self.augmented_feature_mu)
+
+        self.feature_optimizer = torch.optim.Adam(list(self.augmented_feature_phi.parameters())
+                                                  + list(self.augmented_feature_mu.parameters()),
+            lr=lr,
+            weight_decay=1e-2)
+
+        if linear_critic:
+            self.augemented_critic = LineaCritic(feature_dim=aug_feature_dim)
+        else:
+            self.augemented_critic = Critic(feature_dim=aug_feature_dim)
+        self.augemented_critic_target = copy.deepcopy(self.augemented_critic)
+
+
+        self.aug_critic_optimizer = torch.optim.Adam(self.augemented_critic.parameters(), lr=lr, betas=[0.9, 0.999])
+
+
+    def feature_step(self, batch):
+        phi = self.feature_phi(batch.state, batch.action)
+        mu = self.feature_mu(batch.next_state)
+        model_learning_loss1 = - torch.sum(phi * mu, dim=-1)
+        model_learning_loss2 = 1 / (2 * self.feature_dim) * torch.sum(phi * phi, dim=-1)
+        model_learning_loss = model_learning_loss1 + model_learning_loss2
+        model_learning_loss = model_learning_loss.mean()
+
+        # penalty
+        phi_vec = phi[:, :, None]  # shape: [batch, phidim, 1]
+        phi_vec_t = phi[:, None, :]  # shape [batch, 1, phi_dim]
+        identity = torch.einsum('bij,bjk->bik', phi_vec, phi_vec_t)
+        # batch matrix multiplication, more can see https://pytorch.org/docs/stable/generated/torch.einsum.html#torch.einsum
+        identity = torch.mean(identity, dim=0)
+        penalty_factor = torch.tensor(1e10, device=device)  # TODO: tune it maybe
+        penalty_loss = penalty_factor * F.mse_loss(identity, torch.eye(self.feature_dim).to(device) / self.feature_dim)
+
+        loss = model_learning_loss + penalty_loss
+
+        self.feature_optimizer.zero_grad()
+        loss.backward()
+        self.feature_optimizer.step()
+
+        return {
+            'feature_loss': loss.item(),
+            'model_learning_loss1': model_learning_loss1.mean().item(),
+            'model_learning_loss2': model_learning_loss2.mean().item(),
+            'model_learning_loss': model_learning_loss.item(),
+            'penalty_loss': penalty_loss.item(),
+            # 's_loss': s_loss.mean().item(),
+            # 'r_loss': r_loss.mean().item()
+        }
+

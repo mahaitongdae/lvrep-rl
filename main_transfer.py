@@ -66,16 +66,16 @@ if __name__ == "__main__":
     elif args.alg == 'feature_sac':
         kwargs['extra_feature_steps'] = args.extra_feature_steps
         kwargs['feature_dim'] = args.feature_dim
-        agent = vlsac_agent.MLEFeatureAgent(**kwargs)
+        agent = feature_sac_agent.MLEFeatureAgent(**kwargs)
 
-    log_path = '/home/mht/PycharmProjects/lvrep-rl/log/Pendulum-v1/vlsac/0/0'
+    log_path = '/home/mht/PycharmProjects/lvrep-rl/log/Pendulum-v1/speder/reproduce_speder/0'
     feature_phi = MLPFeaturePhi(state_dim=state_dim,
                                 action_dim=action_dim,
                                 feature_dim=args.feature_dim)
     feature_mu = MLPFeatureMu(state_dim=state_dim,
                               feature_dim=args.feature_dim)
-    feature_phi.load_state_dict(torch.load(os.path.join(log_path, 'best_feature_phi.pth')))
-    feature_mu.load_state_dict(torch.load(os.path.join(log_path, 'best_feature_mu.pth')))
+    feature_phi.load_state_dict(torch.load(os.path.join(log_path, 'best_feature_phi.pth'), map_location={'cuda:1': 'cuda:0'}))
+    feature_mu.load_state_dict(torch.load(os.path.join(log_path, 'best_feature_mu.pth'), map_location={'cuda:1': 'cuda:0'}))
 
     batch_size = 256
     states = []
